@@ -27,6 +27,7 @@ function buildAddOn(e) {
 
   var payload = {
     sender: message.getFrom(),
+    reply_to: message.getReplyTo(),
     subject: message.getSubject(),
     body: message.getBody(),
     attachments: attachmentMeta

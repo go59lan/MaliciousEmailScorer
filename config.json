@@ -17,5 +17,8 @@
   ],
   "urgent_keywords": [
     "urgent", "action required", "suspended", "password", "invoice"
+  ],
+  "url_shorteners": [
+    "bit.ly", "tinyurl.com", "t.co", "ow.ly", "goo.gl", "is.gd"
   ]
 }

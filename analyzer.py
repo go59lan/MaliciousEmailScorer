@@ -60,6 +60,16 @@ class EmailAnalyzer:
                 self._add_finding(3, f"High: Typosquatting detected ('{sender_domain}' mimicking '{target}')")
                 break
 
+        # Check for Reply-To Mismatch (BEC Detection)
+        if self.email.reply_to:
+            _, extracted_reply_to = parseaddr(self.email.reply_to)
+            reply_to_lower = extracted_reply_to.lower()
+            reply_to_domain = reply_to_lower.split('@')[-1] if '@' in reply_to_lower else reply_to_lower
+            
+            # If the domains differ, and the Reply-To isn't in our trusted list
+            if sender_domain != reply_to_domain and reply_to_domain not in trusted_domains:
+                self._add_finding(3, f"High: 'Reply-To' domain ({reply_to_domain}) differs from sender domain ({sender_domain}). This is a common Business Email Compromise tactic.")
+
     def _check_subject(self):
         subject_lower = self.email.subject.lower()
         urgent_keywords = SECURITY_CONFIG["urgent_keywords"]
@@ -125,9 +135,20 @@ class EmailAnalyzer:
             href = a_tag.get('href')
             display_text = a_tag.get_text(strip=True).lower()
             
+            # 1. ALWAYS extract the actual target domain first
+            try:
+                href_domain = urlparse(href).netloc.lower()
+            except Exception:
+                href_domain = ""
+                
+            # 2. URL Shortener Check (Runs on every link)
+            url_shorteners = SECURITY_CONFIG.get("url_shorteners", [])
+            if href_domain in url_shorteners:
+                self._add_finding(2, f"Medium: URL shortener detected ({href_domain}). Attackers use these to hide malicious destinations.")
+            
+            # 3. Link Spoofing Check (Only runs if the display text looks like a URL)
             if "." in display_text and " " not in display_text:
                 try:
-                    href_domain = urlparse(href).netloc.lower()
                     text_domain = urlparse(display_text).netloc.lower() if display_text.startswith(('http', 'www')) else display_text
                     
                     if text_domain and href_domain and text_domain not in href_domain and href_domain not in text_domain:
@@ -135,6 +156,7 @@ class EmailAnalyzer:
                 except Exception:
                     pass
 
+            # 4. URLhaus Check (Runs on every link)
             if self._query_urlhaus(href):
                 self._add_finding(4, f"Critical: Malicious link detected via URLhaus ({href})")
                 break

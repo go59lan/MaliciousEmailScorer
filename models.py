@@ -8,6 +8,7 @@ class AttachmentMeta(BaseModel):
 
 class EmailPayload(BaseModel):
     sender: str
+    reply_to: str = ""
     subject: str
     body: str 
     attachments: List[AttachmentMeta] = []

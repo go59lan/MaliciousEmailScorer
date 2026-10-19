@@ -91,6 +91,28 @@ test_cases = [
             "body": "<html>Click <a href='http://safe-test-malware.com'>here</a> to download.</html>",
             "attachments": [{"name": "receipt_document.pdf.exe", "size": 1024, "base64_data": ""}]
         }
+    },
+    {
+        "name": "8. The 'High Risk' Email (Business Email Compromise / Reply-To Mismatch)",
+        "payload": {
+            # The sender is your trusted university domain
+            "sender": "President <president@hit.ac.il>", 
+            # But the hidden reply-to goes to a completely different, untrusted domain
+            "reply_to": "president.personal@ru-mail.net",
+            "subject": "Urgent Wire Transfer",
+            "body": "<html>Are you at your desk? I need a wire transfer sent out immediately. Reply to this email.</html>",
+            "attachments": []
+        }
+    },
+    {
+        "name": "9. The 'Suspicious' Email (URL Shortener Evasion)",
+        "payload": {
+            "sender": "Marketing <marketing@gmail.com>",
+            "subject": "New Campaign Assets",
+            # A completely normal looking link that hides behind bit.ly
+            "body": "<html>Please review the new assets here: <a href='https://bit.ly/42XYZ99'>Project Folder</a></html>",
+            "attachments": []
+        }
     }
 ]
 
