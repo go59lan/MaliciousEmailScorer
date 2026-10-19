@@ -1,9 +1,10 @@
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
 
 class AttachmentMeta(BaseModel):
     name: str
     size: int
+    base64_data: Optional[str] = ""
 
 class EmailPayload(BaseModel):
     sender: str
@@ -12,6 +13,6 @@ class EmailPayload(BaseModel):
     attachments: List[AttachmentMeta] = []
 
 class AnalysisResult(BaseModel):
-    score: int
     verdict: str
+    debrief: str 
     reasons: List[str]

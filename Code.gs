@@ -10,16 +10,25 @@ function buildAddOn(e) {
   
   var attachments = message.getAttachments();
   var attachmentMeta = attachments.map(function(att) {
+    var size = att.getSize();
+    var base64Data = "";
+    
+    // Only send the file contents if it's under 5MB to prevent memory crashes
+    if (size < 5 * 1024 * 1024) {
+      base64Data = Utilities.base64Encode(att.getBytes());
+    }
+    
     return {
       name: att.getName(),
-      size: att.getSize()
+      size: size,
+      base64_data: base64Data
     };
   });
 
   var payload = {
     sender: message.getFrom(),
     subject: message.getSubject(),
-    body: message.getBody(), // Now getting HTML
+    body: message.getBody(),
     attachments: attachmentMeta
   };
   
@@ -64,41 +73,65 @@ function buildAddOn(e) {
   }
 
 /**
- * Constructs the UI Card displaying the score and verdict.
+ * Constructs the UI Card displaying the verdict, debrief, and findings.
  */
 function buildResultCard(result) {
-  var card = CardService.newCardBuilder()
-    .setHeader(CardService.newCardHeader().setTitle("Analysis Results"));
-    
+  var card = CardService.newCardBuilder();
   var section = CardService.newCardSection();
   
-  // Display Score
-  section.addWidget(CardService.newDecoratedText()
-    .setTopLabel("Risk Score")
-    .setText(result.score.toString() + " / 100"));
-    
-  // Display Verdict
-  section.addWidget(CardService.newDecoratedText()
-    .setTopLabel("Verdict")
-    .setText("<b>" + result.verdict + "</b>"));
-    
-  // Display Reasons
-  var reasonsText = result.reasons.length > 0 ? result.reasons.map(function(r) { return "- " + r; }).join("<br>") : "No suspicious indicators found.";
+  // 1. Determine Color and Icon based on Verdict
+  var iconUrl = "https://www.gstatic.com/images/icons/material/system/1x/check_circle_black_48dp.png"; // Default Safe
+  var colorHex = "#2E7D32"; // Green
   
-  section.addWidget(CardService.newTextParagraph()
-    .setText("<b>Reasoning:</b><br>" + reasonsText));
+  if (result.verdict === "Critical") {
+    iconUrl = "https://www.gstatic.com/images/icons/material/system/1x/error_black_48dp.png";
+    colorHex = "#D32F2F"; // Red
+  } else if (result.verdict === "High Risk" || result.verdict === "Suspicious") {
+    iconUrl = "https://www.gstatic.com/images/icons/material/system/1x/warning_black_48dp.png";
+    colorHex = "#ED6C02"; // Orange
+  } else if (result.verdict === "Low Risk") {
+    iconUrl = "https://www.gstatic.com/images/icons/material/system/1x/info_black_48dp.png";
+    colorHex = "#0288D1"; // Blue
+  }
+
+  // 2. Verdict Header (Score removed)
+  section.addWidget(CardService.newDecoratedText()
+    .setTopLabel("THREAT ANALYSIS VERDICT")
+    .setText("<font color='" + colorHex + "'><b>" + result.verdict + "</b></font>")
+    .setStartIcon(CardService.newIconImage().setIconUrl(iconUrl)));
     
   card.addSection(section);
-  return card.build();
-}
+  
+  // 3. NEW: Actionable Debrief Section
+  var debriefSection = CardService.newCardSection()
+    .setHeader("Recommended Action")
+    .addWidget(CardService.newTextParagraph()
+      .setText(result.debrief));
+      
+  card.addSection(debriefSection);
 
-/**
- * Fallback card if the backend is unreachable.
- */
-function buildErrorCard(errorMessage) {
-  var card = CardService.newCardBuilder();
-  var section = CardService.newCardSection()
-    .addWidget(CardService.newTextParagraph().setText(errorMessage));
-  card.addSection(section);
+  // 4. Detailed Findings Section
+  var findingsSection = CardService.newCardSection()
+    .setHeader("Detailed Findings");
+    
+  if (result.reasons.length === 1 && result.reasons[0].indexOf("No suspicious") !== -1) {
+     findingsSection.addWidget(CardService.newTextParagraph()
+      .setText("<font color='#555555'><i>" + result.reasons[0] + "</i></font>"));
+  } else {
+    result.reasons.forEach(function(finding) {
+      var findingIcon = "https://www.gstatic.com/images/icons/material/system/1x/chevron_right_black_48dp.png";
+      
+      if (finding.indexOf("Critical:") !== -1) findingIcon = "https://www.gstatic.com/images/icons/material/system/1x/cancel_black_48dp.png";
+      else if (finding.indexOf("High:") !== -1) findingIcon = "https://www.gstatic.com/images/icons/material/system/1x/warning_amber_48dp.png";
+      else if (finding.indexOf("Medium:") !== -1) findingIcon = "https://www.gstatic.com/images/icons/material/system/1x/help_outline_black_48dp.png";
+      
+      findingsSection.addWidget(CardService.newDecoratedText()
+        .setText(finding)
+        .setStartIcon(CardService.newIconImage().setIconUrl(findingIcon))
+        .setWrapText(true)); 
+    });
+  }
+    
+  card.addSection(findingsSection);
   return card.build();
 }

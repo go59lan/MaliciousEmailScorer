@@ -1,0 +1,21 @@
+{
+  "trusted_domains": [
+    "gmail.com", 
+    "google.com", 
+    "hit.ac.il", 
+    "upwind.comeet-notifications.com"
+  ],
+  "high_value_targets": [
+    "paypal.com", 
+    "amazon.com", 
+    "microsoft.com", 
+    "apple.com", 
+    "bankofamerica.com"
+  ],
+  "dangerous_extensions": [
+    ".exe", ".vbs", ".scr", ".bat", ".js", ".iso", ".img"
+  ],
+  "urgent_keywords": [
+    "urgent", "action required", "suspended", "password", "invoice"
+  ]
+}
