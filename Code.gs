@@ -8,10 +8,19 @@ function buildAddOn(e) {
   var messageId = e.messageMetadata.messageId;
   var message = GmailApp.getMessageById(messageId);
   
+  var attachments = message.getAttachments();
+  var attachmentMeta = attachments.map(function(att) {
+    return {
+      name: att.getName(),
+      size: att.getSize()
+    };
+  });
+
   var payload = {
     sender: message.getFrom(),
     subject: message.getSubject(),
-    body: message.getPlainBody() // Using plain body to avoid sending raw HTML for now
+    body: message.getBody(), // Now getting HTML
+    attachments: attachmentMeta
   };
   
   // 2. Send data to your Python backend
