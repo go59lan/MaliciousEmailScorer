@@ -9,7 +9,6 @@ from urllib.parse import urlparse
 from difflib import SequenceMatcher
 from models import EmailPayload, AnalysisResult
 
-# Load configuration data once at startup
 try:
     with open("config.json", "r") as f:
         SECURITY_CONFIG = json.load(f)
@@ -24,7 +23,8 @@ class EmailAnalyzer:
     def __init__(self, email: EmailPayload):
         self.email = email
         self.findings = []
-        self.max_severity = 0 # 0=Safe, 1=Low, 2=Medium, 3=High, 4=Critical
+        # Severity scale: 0=Safe, 1=Low, 2=Medium, 3=High, 4=Critical
+        self.max_severity = 0 
 
     def analyze(self) -> AnalysisResult:
         self._check_sender()
@@ -34,7 +34,6 @@ class EmailAnalyzer:
         return self._calculate_final_result()
 
     def _add_finding(self, severity: int, description: str):
-        """Helper to track findings and update the maximum severity watermark."""
         self.findings.append(description)
         if severity > self.max_severity:
             self.max_severity = severity
@@ -44,7 +43,6 @@ class EmailAnalyzer:
         sender_lower = extracted_email.lower()
         sender_domain = sender_lower.split('@')[-1] if '@' in sender_lower else sender_lower
         
-        # Load from config instead of hardcoded lists
         trusted_domains = SECURITY_CONFIG["trusted_domains"]
         high_value_targets = SECURITY_CONFIG["high_value_targets"]
         
@@ -80,40 +78,34 @@ class EmailAnalyzer:
                 continue
             
             if not att.base64_data:
-                # 5MB = 5 * 1024 * 1024 bytes
                 if att.size >= 5242880:
                     self._add_finding(1, f"Low: Attachment '{att.name}' is too large for deep static analysis. Standard extension checks were applied, but exercise caution.")
                 continue
 
             try:
-                # Decode the base64 string back into raw bytes in memory
                 file_bytes = base64.b64decode(att.base64_data)
                 
-                # 2. Static Analysis: ZIP Archives
                 if name_lower.endswith(".zip"):
                     zip_buffer = io.BytesIO(file_bytes)
                     with zipfile.ZipFile(zip_buffer) as zf:
+                        # Bit 0 of the flag_bits header indicates if the file requires a password
                         is_encrypted = any(zinfo.flag_bits & 0x1 for zinfo in zf.infolist())
                         if is_encrypted:
                             self._add_finding(3, f"High: Encrypted ZIP archive detected ({att.name}).")
                 
-                # 3. Static Analysis: Modern Office Documents (.docx, .xlsx, .docm)
-                # Office files are actually ZIP archives, so we use the zipfile library!
                 elif name_lower.endswith((".docx", ".xlsx", ".pptx", ".docm", ".xlsm")):
                     zip_buffer = io.BytesIO(file_bytes)
                     with zipfile.ZipFile(zip_buffer) as zf:
-                        # Look for the telltale sign of hidden VBA macros
+                        # Modern Office files are ZIP archives; vbaproject.bin indicates embedded VBA macros
                         for internal_file in zf.namelist():
                             if "vbaproject.bin" in internal_file.lower():
                                 self._add_finding(4, f"Critical: Weaponized Office document detected. Contains hidden VBA Macros ({att.name}).")
                                 break
                 
-                # 4. Static Analysis: HTML Smuggling
                 elif name_lower.endswith((".html", ".htm")):
-                    # Decode the bytes into a readable string
                     html_text = file_bytes.decode('utf-8', errors='ignore').lower()
                     
-                    # These are the JavaScript functions used to generate files in the browser
+                    # JavaScript functions commonly used for HTML smuggling to assemble payloads in-browser
                     smuggling_indicators = ["createobjecturl", "blob(", "data:application/octet-stream"]
                     
                     if any(indicator in html_text for indicator in smuggling_indicators):
@@ -133,7 +125,6 @@ class EmailAnalyzer:
             href = a_tag.get('href')
             display_text = a_tag.get_text(strip=True).lower()
             
-            # Link Spoofing Check
             if "." in display_text and " " not in display_text:
                 try:
                     href_domain = urlparse(href).netloc.lower()
@@ -144,22 +135,25 @@ class EmailAnalyzer:
                 except Exception:
                     pass
 
-            # URLhaus Check
             if self._query_urlhaus(href):
                 self._add_finding(4, f"Critical: Malicious link detected via URLhaus ({href})")
                 break
 
     def _query_urlhaus(self, url: str) -> bool:
+        # Mock intercept to safely demonstrate a Critical alert during testing
         if "safe-test-malware.com" in url:
             return True
+            
         if not url.startswith(("http://", "https://")):
             return False
+            
         try:
             response = requests.post("https://urlhaus-api.abuse.ch/v1/url/", data={'url': url}, timeout=3)
             if response.status_code == 200 and response.json().get("query_status") == "ok":
                 return True
         except requests.exceptions.RequestException:
             pass
+            
         return False
 
     def _calculate_final_result(self) -> AnalysisResult:
