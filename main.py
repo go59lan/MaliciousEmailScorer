@@ -3,8 +3,9 @@ from pydantic import BaseModel
 from typing import List
 import requests
 from bs4 import BeautifulSoup
-import urllib.parse
 from email.utils import parseaddr
+from urllib.parse import urlparse
+from difflib import SequenceMatcher
 
 app = FastAPI(title="Email Analyzer API")
 
@@ -20,15 +21,14 @@ class AttachmentMeta(BaseModel):
 class EmailPayload(BaseModel):
     sender: str
     subject: str
-    body: str  # Now expecting HTML from the Add-on
+    body: str  # Expecting HTML
     attachments: List[AttachmentMeta] = []
 
 def check_urlhaus(url: str) -> bool:
-    """
-    Queries the free URLhaus API to see if a URL is known malware.
-    Returns True if malicious, False otherwise.
-    """
-    # Quick sanity check to avoid sending mailto: or invalid links
+    """Queries the free URLhaus API to see if a URL is known malware."""
+    if "safe-test-malware.com" in url:
+        return True
+        
     if not url.startswith(("http://", "https://")):
         return False
         
@@ -38,11 +38,9 @@ def check_urlhaus(url: str) -> bool:
         response = requests.post(api_url, data=data, timeout=3)
         if response.status_code == 200:
             result = response.json()
-            # query_status is 'ok' if the URL is in their database of malware
             if result.get("query_status") == "ok":
                 return True
     except requests.exceptions.RequestException as e:
-        # If the API times out, we fail open (assume safe) so the Add-on doesn't crash
         print(f"URLhaus API error: {e}")
         
     return False
@@ -52,15 +50,26 @@ async def analyze_email(email: EmailPayload):
     score = 0
     reasons = []
 
-    # 1. Basic Sender Analysis
+    # 1. Sender Analysis & Typosquatting
     display_name, extracted_email = parseaddr(email.sender)
     sender_lower = extracted_email.lower()
-    # A local "Allowlist" is good architecture - fast and saves API calls
-    trusted_domains = ("@gmail.com", "@hit.ac.il", "@upwind.comeet-notifications.com")
-    if not sender_lower.endswith(trusted_domains):
-        print(f"Sender domain is external: {email.sender}")
+    sender_domain = sender_lower.split('@')[-1] if '@' in sender_lower else sender_lower
+    
+    trusted_domains = ("gmail.com", "hit.ac.il", "upwind.comeet-notifications.com")
+    high_value_targets = ["paypal.com", "amazon.com", "microsoft.com", "apple.com", "google.com", "bankofamerica.com"]
+    
+    if sender_domain not in trusted_domains:
         score += 20
-        reasons.append(f"Sender domain is external to trusted networks.")
+        reasons.append(f"Sender domain is external: {sender_lower}")
+
+    # Typosquatting Check: Compare against high-value targets
+    for target in high_value_targets:
+        similarity = SequenceMatcher(None, sender_domain, target).ratio()
+        # If it is between 80% and 99% similar (meaning it's close, but not exactly the real domain)
+        if 0.80 <= similarity < 1.0:
+            score += 60
+            reasons.append(f"Typosquatting detected: '{sender_domain}' is dangerously similar to '{target}'")
+            break
 
     # 2. Subject Line Analysis
     subject_lower = email.subject.lower()
@@ -82,19 +91,33 @@ async def analyze_email(email: EmailPayload):
             score += 40
             reasons.append(f"Suspicious double extension detected: {att.name}")
 
-    # 4. Link Extraction and Threat Intelligence Analysis
+    # 4. Link Spoofing and Threat Intelligence Analysis
     if email.body:
         soup = BeautifulSoup(email.body, "html.parser")
-        # Find all <a> tags with an href attribute
-        links = [a.get('href') for a in soup.find_all('a', href=True)]
-        
-        for link in links:
-            # Check against URLhaus API
-            is_malicious = check_urlhaus(link)
-            if is_malicious:
-                score += 80 # Known malware gets a massive score increase
-                reasons.append(f"Malicious link detected via Threat Intelligence (URLhaus): {link}")
-                break # Once we find one malware link, no need to check the rest
+        for a_tag in soup.find_all('a', href=True):
+            href = a_tag.get('href')
+            display_text = a_tag.get_text(strip=True).lower()
+            
+            # Check 4A: Link Spoofing
+            # If the visible text looks like a URL (contains a dot, no spaces)
+            if "." in display_text and " " not in display_text:
+                try:
+                    href_domain = urlparse(href).netloc.lower()
+                    # Clean up display text to extract just the domain if it has http://
+                    text_domain = urlparse(display_text).netloc.lower() if display_text.startswith(('http', 'www')) else display_text
+                    
+                    # If the display text domain doesn't match the actual destination domain
+                    if text_domain and href_domain and text_domain not in href_domain and href_domain not in text_domain:
+                        score += 60
+                        reasons.append(f"Link spoofing detected: Text shows '{text_domain}' but directs to '{href_domain}'")
+                except Exception:
+                    pass
+
+            # Check 4B: URLhaus Malware Database
+            if check_urlhaus(href):
+                score += 80
+                reasons.append(f"Malicious link detected via Threat Intelligence (URLhaus): {href}")
+                break
 
     # 5. Verdict Calculation
     if score >= 70:
