@@ -1,9 +1,11 @@
-# MaliciousEmailScorer
+# Gmail Threat Analyzer Add-on
 
 ## Overview
 This project is a professional-grade Gmail Add-on designed to perform automated phishing, malware, and social engineering analysis on incoming emails. 
 
 It consists of a lightweight Google Apps Script (Card Service) frontend that extracts email metadata and payloads, and a Python/FastAPI backend that performs deep static analysis, threat intelligence routing, and heuristic evaluations. The UI provides users with actionable security directives based on a worst-case severity tiering model.
+
+*Disclaimer: This project was built as a functional demonstration and prototype. The current architecture (single-instance FastAPI, local `config.json`, in-memory processing) is designed to showcase cybersecurity concepts and product thinking. It is not currently load-balanced or hardened to accept high-concurrency traffic or multi-tenant enterprise deployment.*
 
 ## Core Security Capabilities
 - **In-Memory Static Analysis:** Extracts and analyzes attachments in RAM buffers without writing to disk or detonating payloads. Identifies encrypted ZIPs, hidden VBA macros inside modern Office documents (`vbaProject.bin`), and JavaScript HTML Smuggling payloads. Immune to decompression (Zip) bombs.
@@ -43,3 +45,30 @@ pip install -r requirements.txt
 
 # Start the server
 python main.py
+```
+The server will run locally on `http://0.0.0.0:8000`.
+
+### 2. Exposing the Backend (ngrok)
+Google Apps Script requires a public HTTPS endpoint to communicate with external APIs. Since the backend is running locally on your machine, we use `ngrok` to create a secure tunnel to it.
+
+```bash
+ngrok http 8000
+```
+*Note: If you are using the free tier of ngrok, the `https://xxxx.ngrok.app` URL will change every time you restart the ngrok service. You will need to update the Apps Script code with the new URL each time.*
+
+### 3. Frontend Setup (Google Apps Script)
+1. Go to [script.google.com](https://script.google.com).
+2. Create a new project and paste the contents of `Code.gs`.
+3. Update the `BACKEND_URL` variable at the top of `Code.gs` with your current ngrok URL.
+4. Update the `appsscript.json` manifest file with the required Gmail scopes.
+5. Deploy the script as a "Test Deployment" and install it on your Gmail account.
+
+## Testing the Engine
+
+Modern enterprise email gateways (like Google Workspace) will natively quarantine weaponized documents or exact typosquatted domains before they reach the inbox. To demonstrate the backend's capability against advanced evasion techniques without requiring live malware, a test harness is included.
+
+While the FastAPI server is running, execute:
+```bash
+python test_payload.py
+```
+This script dynamically generates weaponized payloads in memory (e.g., Base64 encoded HTML smuggling and Office Macro structures) and fires them at the `/analyze` endpoint, outputting a color-coded security debrief in your terminal.
